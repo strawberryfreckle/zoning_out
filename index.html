@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Zoneout.</title>
+    <style>
+        /* 1. 기본 스타일 */
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body, html { 
+            width: 100%; height: 100%; overflow: hidden; 
+            background-color: #000; 
+            font-family: 'Pretendard', -apple-system, BlinkMacSystemFont, system-ui, Roboto, sans-serif; 
+            cursor: none; 
+        }
+        body.user-active { cursor: default; }
+
+        /* 2. 유튜브 영상 배경 */
+        #video-background {
+            position: absolute; top: 50%; left: 50%;
+            width: 100vw; height: 100vh;
+            transform: translate(-50%, -50%);
+            z-index: 1; 
+            pointer-events: none; /* 평소엔 클릭 방지 (핵심) */
+            transition: opacity 0.3s;
+        }
+        #video-background.clickable { pointer-events: auto; } /* 스킵 모드일 때만 클릭 허용 */
+
+        .video-foreground {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%; 
+            pointer-events: inherit; 
+        }
+        iframe {
+            width: 100vw; height: 56.25vw; 
+            min-height: 100vh; min-width: 177.77vh; 
+            position: absolute; top: 50%; left: 50%;
+            transform: translate(-50%, -50%);
+            pointer-events: inherit;
+        }
+
+        /* 3. 인트로 화면 */
+        #intro-screen {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background-color: #000; z-index: 100;
+            display: flex; flex-direction: column; justify-content: center; align-items: center;
+            color: #fff; cursor: pointer; transition: opacity 1.5s ease;
+        }
+        #intro-text { font-size: 1.5rem; letter-spacing: 2px; font-weight: 300; opacity: 0; animation: fadeIn 2s forwards; }
+        .cursor { display: inline-block; width: 8px; height: 1.5rem; background-color: #fff; margin-left: 5px; animation: blink 1s infinite; }
+        
+        /* 시작 안내 문구 */
+        #click-guide { margin-top: 10px; font-size: 0.9rem; color: #888; opacity: 0; animation: fadeIn 2s 1s forwards; }
+        
+        /* [NEW] 광고 관련 안내 문구 (더 작고 흐리게) */
+        #ad-guide { 
+            margin-top: 10px; 
+            font-size: 0.7rem; 
+            color: #636262; /* 아주 어둡게 처리 */
+            opacity: 0; 
+            animation: fadeIn 2s 1.5s forwards; 
+        }
+
+        /* 4. UI 요소 공통 */
+        .ui-element { opacity: 0; transition: opacity 0.5s ease; pointer-events: auto; }
+        body.ad-mode .ui-element { opacity: 0.2; } /* 광고 모드일 때 UI 흐리게 */
+        body.user-active .ui-element { opacity: 1; }
+
+        #text-container {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            z-index: 10; display: flex; flex-direction: column;
+            justify-content: center; align-items: center; 
+            pointer-events: none; 
+            text-shadow: 0 2px 10px rgba(0,0,0,0.5); color: rgba(255, 255, 255, 0.9);
+        }
+        .location-title { font-size: 2rem; font-weight: 700; margin-bottom: 10px; display: block; }
+        .location-desc { font-size: 1rem; font-weight: 300; opacity: 0.8; font-style: italic; font-family: 'Times New Roman', serif; margin-bottom: 20px; }
+
+        #youtube-link {
+            pointer-events: auto;
+            color: rgba(255, 255, 255, 0.5); text-decoration: none; font-size: 0.8rem;
+            border: 1px solid rgba(255, 255, 255, 0.3); padding: 5px 12px; border-radius: 15px;
+            transition: all 0.3s; display: flex; align-items: center; gap: 5px;
+        }
+        #youtube-link:hover { color: #fff; background-color: rgba(255, 0, 0, 0.6); border-color: rgba(255, 0, 0, 0.8); }
+
+        #indicator {
+            position: absolute; bottom: 30px; left: 50%; transform: translateX(-50%);
+            display: flex; gap: 10px; z-index: 20;
+        }
+        .dot { width: 6px; height: 6px; background-color: #fff; border-radius: 50%; opacity: 0.3; transition: 0.3s; }
+        .dot.active { opacity: 1; transform: scale(1.2); }
+
+        /* 버튼 그룹 (왼쪽 아래) */
+        #btn-group {
+            position: absolute; bottom: 30px; left: 30px; z-index: 50;
+            display: flex; gap: 10px;
+        }
+
+        .control-btn {
+            background: rgba(0, 0, 0, 0.3); color: rgba(255, 255, 255, 0.6);
+            border: 1px solid rgba(255, 255, 255, 0.2); padding: 8px 15px;
+            border-radius: 20px; font-size: 0.8rem; cursor: pointer;
+            backdrop-filter: blur(5px); transition: all 0.3s ease;
+        }
+        .control-btn:hover { background: rgba(255, 255, 255, 0.1); color: #fff; border-color: rgba(255, 255, 255, 0.5); }
+        
+        .control-btn.active {
+            background: rgba(255, 255, 255, 0.9); color: #000; border-color: #fff;
+        }
+
+        @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0; } }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+    </style>
+</head>
+<body>
+    <div id="intro-screen">
+        <div id="intro-text">아무 생각 없이, 그저 바라보세요<span class="cursor"></span></div>
+        <div id="click-guide">화면을 클릭하여 시작</div>
+        <div id="ad-guide">※ 광고가 뜨면 좌측 하단 '광고 건너뛰기 켜기' 버튼을 이용하세요</div>
+    </div>
+
+    <div id="video-background"><div class="video-foreground"><div id="player"></div></div></div>
+    
+    <div id="text-container" class="ui-element">
+        <span class="location-title" id="title-display">Loading...</span>
+        <span class="location-desc" id="desc-display">잠시만 기다려주세요</span>
+        <a id="youtube-link" href="#" target="_blank">▶ Watch on YouTube</a>
+    </div>
+
+    <div id="indicator" class="ui-element"></div>
+    
+    <div id="btn-group" class="ui-element">
+        <button id="fullscreen-btn" class="control-btn">⛶ Full Screen</button>
+        <button id="ad-mode-btn" class="control-btn">🖱️ 광고 건너뛰기 켜기</button>
+    </div>
+
+    <script>
+        // 1. 플레이리스트
+        const playlist = [
+            { id: 'vFH2lGROUI8', title: "Nagano, Japan", desc: "청량한 여름 바람과 기차 소리", start: 70 },
+            { id: 'tffjAlDbBGU', title: "Grindelwald, Swiss", desc: "따스한 봄 햇살, 알프스의 산책", start: 190 },
+            { id: 'jw2hGPeopzY', title: "Monument Valley, USA", desc: "광할한 붉은 사암, 자유로운 드라이브", start: 116 },
+            { id: 'F8MN0o6RS9o', title: "New York, USA", desc: "빗물에 번지는 도시의 네온사인", start: 0 },
+            { id: '31RokLEvUhg', title: "Stockholm, Sweden", desc: "고요한 겨울 밤, 눈 밟는 소리", start: 12 }
+        ];
+
+        let currentIndex = 0;
+        let player;
+        let isStarted = false;
+
+        // 2. 유튜브 API
+        var tag = document.createElement('script');
+        tag.src = "https://www.youtube.com/iframe_api";
+        var firstScriptTag = document.getElementsByTagName('script')[0];
+        firstScriptTag.parentNode.insertBefore(tag, firstScriptTag);
+
+        function onYouTubeIframeAPIReady() {
+            player = new YT.Player('player', {
+                videoId: playlist[currentIndex].id,
+                playerVars: {
+                    'autoplay': 0, 'controls': 0, 'rel': 0, 'showinfo': 0, 
+                    'loop': 1, 'playlist': playlist[currentIndex].id, 
+                    'mute': 1, 'modestbranding': 1, 
+                    'start': playlist[currentIndex].start
+                },
+                events: { 'onReady': onPlayerReady }
+            });
+        }
+
+        function onPlayerReady(event) {
+            updateInfo();
+            createIndicators();
+        }
+
+        // 3. 인터랙션
+        const introScreen = document.getElementById('intro-screen');
+        introScreen.addEventListener('click', () => {
+            if (isStarted) return;
+            isStarted = true;
+            introScreen.style.opacity = '0';
+            setTimeout(() => { introScreen.style.display = 'none'; }, 1500);
+            player.unMute();
+            player.playVideo();
+            activateUI();
+        });
+
+        document.addEventListener('keydown', (e) => {
+            if (!isStarted) return;
+            activateUI();
+            if (e.key === 'ArrowRight') changeLocation('next');
+            else if (e.key === 'ArrowLeft') changeLocation('prev');
+        });
+
+        function changeLocation(direction) {
+            if (direction === 'next') currentIndex = (currentIndex + 1) % playlist.length;
+            else currentIndex = (currentIndex - 1 + playlist.length) % playlist.length;
+            
+            player.loadVideoById({ videoId: playlist[currentIndex].id, startSeconds: playlist[currentIndex].start });
+            updateInfo();
+        }
+
+        // 4. 정보 업데이트
+        const titleEl = document.getElementById('title-display');
+        const descEl = document.getElementById('desc-display');
+        const linkEl = document.getElementById('youtube-link');
+        const indicatorContainer = document.getElementById('indicator');
+
+        function updateInfo() {
+            titleEl.textContent = playlist[currentIndex].title;
+            descEl.textContent = playlist[currentIndex].desc;
+            linkEl.href = `https://www.youtube.com/watch?v=${playlist[currentIndex].id}`;
+            const dots = document.querySelectorAll('.dot');
+            dots.forEach((dot, idx) => {
+                if(idx === currentIndex) dot.classList.add('active');
+                else dot.classList.remove('active');
+            });
+        }
+
+        function createIndicators() {
+            playlist.forEach((_, idx) => {
+                const dot = document.createElement('div');
+                dot.classList.add('dot');
+                if(idx === 0) dot.classList.add('active');
+                indicatorContainer.appendChild(dot);
+            });
+        }
+
+        // 5. 마우스 감지
+        let inactivityTimeout;
+        function activateUI() {
+            document.body.classList.add('user-active');
+            clearTimeout(inactivityTimeout);
+            inactivityTimeout = setTimeout(() => {
+                document.body.classList.remove('user-active');
+            }, 3000);
+        }
+        document.addEventListener('mousemove', activateUI);
+        document.addEventListener('click', activateUI);
+
+        // 6. 전체화면
+        const fullscreenBtn = document.getElementById('fullscreen-btn');
+        fullscreenBtn.addEventListener('click', () => {
+            if (!document.fullscreenElement) document.documentElement.requestFullscreen();
+            else if (document.exitFullscreen) document.exitFullscreen();
+        });
+
+        // 7. [수정됨] 광고 스킵 모드 (5초)
+        const adModeBtn = document.getElementById('ad-mode-btn');
+        const videoBg = document.getElementById('video-background');
+        let adModeTimeout;
+
+        adModeBtn.addEventListener('click', (e) => {
+            e.stopPropagation(); 
+            
+            // 영상 클릭 허용
+            videoBg.classList.add('clickable');
+            document.body.classList.add('ad-mode');
+            adModeBtn.classList.add('active');
+            adModeBtn.textContent = "👆 지금 화면 클릭 가능 (5초)"; // 문구 수정
+
+            // 기존 타이머 취소 및 5초 뒤 자동 잠금
+            clearTimeout(adModeTimeout);
+            adModeTimeout = setTimeout(() => {
+                lockVideo();
+            }, 5000); // 10000 -> 5000 (5초)로 변경
+        });
+
+        function lockVideo() {
+            videoBg.classList.remove('clickable');
+            document.body.classList.remove('ad-mode');
+            adModeBtn.classList.remove('active');
+            adModeBtn.textContent = "🖱️ 광고 건너뛰기 켜기";
+            window.focus(); 
+        }
+
+    </script>
+</body>
+</html>
